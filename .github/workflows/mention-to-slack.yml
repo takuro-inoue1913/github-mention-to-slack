@@ -24,7 +24,10 @@ jobs:
         | {text: (
             "参加しているIssueで *\(.user.login)* \(if .issue_url then "のコメントが投稿されました" else "がIssueを作成しました" end)\n"
             + "<\(.html_url)|\($repo)#\($issue.number) \($issue.title | escape)>\n"
-            + ($body | if length > 3000 then .[0:3000] + " …" else . end
+            + ($body | split("\n") | map(select(test("\\S"))) | join("\n") as $compact
+                | $compact | split("\n") | .[0:5] | join("\n")
+                | if length > 300 then .[0:300] else . end
+                | if . != $compact then . + " …" else . end
                 | escape | gsub("@\($me)\\b"; "<@\($slack)>"; "i")
                 | split("\n") | map("> " + .) | join("\n"))
           )}
