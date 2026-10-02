@@ -4,12 +4,29 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      comment_url:
+        description: 指定したコメントを送る（動作確認用。例 https://github.com/o/r/issues/1#issuecomment-123）
+        required: false
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
+      - name: Notify specified comment
+        if: inputs.comment_url != ''
+        env:
+          GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          COMMENT_URL: ${{ inputs.comment_url }}
+        run: |
+          repo=$(echo "${COMMENT_URL#https://github.com/}" | cut -d/ -f1-2)
+          gh api "repos/$repo/issues/comments/${COMMENT_URL##*issuecomment-}" \
+            | jq '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))"}' \
+            | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+
       - name: Restore last checked time
+        if: inputs.comment_url == ''
         uses: actions/cache/restore@v4
         with:
           path: last_checked
@@ -17,6 +34,7 @@ jobs:
           restore-keys: last-checked-
 
       - name: Notify mentions
+        if: inputs.comment_url == ''
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -39,6 +57,7 @@ jobs:
           echo "$now" > last_checked
 
       - name: Save last checked time
+        if: inputs.comment_url == ''
         uses: actions/cache/save@v4
         with:
           path: last_checked
