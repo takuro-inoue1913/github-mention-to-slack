@@ -18,11 +18,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MEMBER_ID: ${{ vars.SLACK_MEMBER_ID }}
           COMMENT_URL: ${{ inputs.comment_url }}
         run: |
           repo=$(echo "${COMMENT_URL#https://github.com/}" | cut -d/ -f1-2)
           gh api "repos/$repo/issues/comments/${COMMENT_URL##*issuecomment-}" \
-            | jq '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))"}' \
+            | jq --arg me "$(gh api user --jq .login)" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' \
             | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
 
       - name: Restore last checked time
@@ -38,6 +39,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MEMBER_ID: ${{ vars.SLACK_MEMBER_ID }}
         run: |
           now=$(date -u +%FT%TZ)
           since=$(cat last_checked 2>/dev/null || date -u -d '-10 min' +%FT%TZ)
@@ -50,7 +52,7 @@ jobs:
             gh api "$url" \
               | jq -e --arg me "@$me" 'select(.body | ascii_downcase | contains($me | ascii_downcase))' > comment.json \
               || continue
-            jq '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))"}' comment.json \
+            jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' comment.json \
               | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
           done
 
