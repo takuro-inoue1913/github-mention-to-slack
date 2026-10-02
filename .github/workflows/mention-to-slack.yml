@@ -3,18 +3,31 @@ name: mention-to-slack
 on:
   schedule:
     - cron: "*/5 * * * *"
+    # 60 日間リポジトリに動きがないと schedule が止まるのを防ぐ
+    - cron: "0 0 1 * *"
   workflow_dispatch:
     inputs:
       comment_url:
         description: 指定したコメントを送る（動作確認用。例 https://github.com/o/r/issues/1#issuecomment-123）
         required: false
 
-concurrency:
-  group: mention-to-slack
-
 jobs:
-  notify:
+  keepalive:
+    if: github.event.schedule == '0 0 1 * *'
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Enable workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/mention-to-slack.yml/enable"
+
+  notify:
+    if: github.event.schedule != '0 0 1 * *'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: mention-to-slack
     env:
       # 見出し・Issue へのリンク・引用した本文のメッセージを作る（$issue は投稿先の Issue）
       MESSAGE_FILTER: |

@@ -27,11 +27,14 @@
 
 - 前回チェックした時刻を Actions cache（`last_checked`）に保存し、それ以降に作成された投稿だけを送る
   - 初回（cache なし）は直近 10 分を対象にする
-- `concurrency` で同時実行を防ぎ、遅延した実行同士で同じ投稿を送らないようにしている
+- notify job の `concurrency` で同時実行を防ぎ、遅延した実行同士で同じ投稿を送らないようにしている
 - 限界
   - 途中で Slack への送信が失敗すると時刻が更新されず、次回にそれまで送った分も再送される
   - schedule 実行は GitHub 側の混雑で数分〜十数分遅れることがある
-  - Public リポジトリは 60 日間コミットがないと schedule が自動停止する（Actions タブから再有効化）
+
+## schedule の自動停止対策
+
+Public リポジトリは 60 日間動きがないと schedule が自動停止する。毎月 1 日 0:00（UTC）に `keepalive` job が workflow の有効化 API（`PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable`）を呼び、非アクティブ期間をリセットする。止まってしまった場合は Actions タブから再有効化する。
 
 ## セットアップ
 
