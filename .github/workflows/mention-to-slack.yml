@@ -9,6 +9,9 @@ on:
         description: 指定したコメントを送る（動作確認用。例 https://github.com/o/r/issues/1#issuecomment-123）
         required: false
 
+concurrency:
+  group: mention-to-slack
+
 jobs:
   notify:
     runs-on: ubuntu-latest
@@ -48,9 +51,9 @@ jobs:
           gh api "notifications?all=true&since=$since" --paginate \
             --jq '.[] | select(.reason == "mention") | .subject.latest_comment_url // empty' |
           while read -r url; do
-            # スレッドの最新コメントに自分へのメンションが含まれるときだけ通知する
+            # 前回チェック以降に投稿された、自分へのメンションを含む最新コメントだけ通知する
             gh api "$url" \
-              | jq -e --arg me "@$me" 'select(.body | ascii_downcase | contains($me | ascii_downcase))' > comment.json \
+              | jq -e --arg me "@$me" --arg since "$since" 'select(.created_at >= $since and (.body | ascii_downcase | contains($me | ascii_downcase)))' > comment.json \
               || continue
             jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' comment.json \
               | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
