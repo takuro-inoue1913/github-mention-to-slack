@@ -1,6 +1,6 @@
 # github-mention-to-slack
 
-GitHub の通知 API を 5 分おきにポーリングし、自分宛てのメンション（Issue / PR）を Slack の Incoming Webhook に転送する。
+GitHub の通知 API を 5 分おきにポーリングし、自分が作成・コメント・アサイン・メンションされた Issue への他人の投稿を Slack の Incoming Webhook に転送する。
 
 ## Secrets
 
