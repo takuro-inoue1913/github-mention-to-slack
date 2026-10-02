@@ -16,10 +16,18 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     env:
-      # 本文はコードブロックで送り、自分へのメンションがあれば投稿者名の横で Slack メンションする
+      # 見出し・Issue へのリンク・引用した本文のメッセージを作る（$issue は投稿先の Issue）
       MESSAGE_FILTER: |
-        (.body // "") as $body
-        | {text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*\(if ($body | test("@\($me)\\b"; "i")) then " <@\($slack)>" else "" end)\n```\n\($body[0:3000] | gsub("```"; "'''") | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))\n```"}
+        def escape: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
+        ((.body // "") | gsub("\r"; "") | rtrimstr("\n")) as $body
+        | ($issue.repository_url | sub(".*/repos/"; "")) as $repo
+        | {text: (
+            "参加しているIssueで *\(.user.login)* \(if .issue_url then "のコメントが投稿されました" else "がIssueを作成しました" end)\n"
+            + "<\(.html_url)|\($repo)#\($issue.number) \($issue.title | escape)>\n"
+            + ($body | if length > 3000 then .[0:3000] + " …" else . end
+                | escape | gsub("@\($me)\\b"; "<@\($slack)>"; "i")
+                | split("\n") | map("> " + .) | join("\n"))
+          )}
     steps:
       - name: Notify specified comment
         if: inputs.comment_url != ''
@@ -29,9 +37,11 @@ jobs:
           SLACK_MEMBER_ID: ${{ vars.SLACK_MEMBER_ID }}
           COMMENT_URL: ${{ inputs.comment_url }}
         run: |
-          repo=$(echo "${COMMENT_URL#https://github.com/}" | cut -d/ -f1-2)
+          path=${COMMENT_URL#https://github.com/}
+          repo=$(echo "$path" | cut -d/ -f1-2)
+          issue=$(gh api "repos/$repo/issues/$(echo "$path" | cut -d/ -f4 | cut -d'#' -f1)")
           gh api "repos/$repo/issues/comments/${COMMENT_URL##*issuecomment-}" \
-            | jq --arg me "$(gh api user --jq .login)" --arg slack "$SLACK_MEMBER_ID" "$MESSAGE_FILTER" \
+            | jq --arg me "$(gh api user --jq .login)" --arg slack "$SLACK_MEMBER_ID" --argjson issue "$issue" "$MESSAGE_FILTER" \
             | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
 
       - name: Restore last checked time
@@ -58,11 +68,12 @@ jobs:
             --jq '.[] | select(.subject.type == "Issue") | .subject.url' |
           while read -r url; do
             # 前回チェック以降に他人が投稿した Issue 本文とコメントを通知する
-            { gh api "$url"; gh api "$url/comments?since=$since" --paginate --jq '.[]'; } \
+            issue=$(gh api "$url")
+            { printf '%s\n' "$issue"; gh api "$url/comments?since=$since" --paginate --jq '.[]'; } \
               | jq -c --arg me "$me" --arg since "$since" 'select(.created_at >= $since and .user.login != $me)' |
             while read -r item; do
               printf '%s' "$item" \
-                | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" "$MESSAGE_FILTER" \
+                | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" --argjson issue "$issue" "$MESSAGE_FILTER" \
                 | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
             done
           done
