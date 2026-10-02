@@ -10,10 +10,14 @@ on:
       comment_url:
         description: 指定したコメントを送る（動作確認用。例 https://github.com/o/r/issues/1#issuecomment-123）
         required: false
+      keepalive:
+        description: keepalive job だけを実行する（動作確認用）
+        type: boolean
+        default: false
 
 jobs:
   keepalive:
-    if: github.event.schedule == '0 0 1 * *'
+    if: github.event.schedule == '0 0 1 * *' || inputs.keepalive
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -24,7 +28,7 @@ jobs:
         run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/mention-to-slack.yml/enable"
 
   notify:
-    if: github.event.schedule != '0 0 1 * *'
+    if: github.event.schedule != '0 0 1 * *' && !inputs.keepalive
     runs-on: ubuntu-latest
     concurrency:
       group: mention-to-slack
