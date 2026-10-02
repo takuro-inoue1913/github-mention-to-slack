@@ -37,7 +37,7 @@ jobs:
           key: last-checked-${{ github.run_id }}
           restore-keys: last-checked-
 
-      - name: Notify mentions
+      - name: Notify issue activities
         if: inputs.comment_url == ''
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
@@ -48,15 +48,18 @@ jobs:
           since=$(cat last_checked 2>/dev/null || date -u -d '-10 min' +%FT%TZ)
           me=$(gh api user --jq .login)
 
-          gh api "notifications?all=true&since=$since" --paginate \
-            --jq '.[] | select(.reason == "mention") | .subject.latest_comment_url // empty' |
+          # 自分が作成・コメント・アサイン・メンションされた Issue のスレッド
+          gh api "notifications?all=true&participating=true&since=$since" --paginate \
+            --jq '.[] | select(.subject.type == "Issue") | .subject.url' |
           while read -r url; do
-            # 前回チェック以降に投稿された、自分へのメンションを含む最新コメントだけ通知する
-            gh api "$url" \
-              | jq -e --arg me "@$me" --arg since "$since" 'select(.created_at >= $since and (.body | ascii_downcase | contains($me | ascii_downcase)))' > comment.json \
-              || continue
-            jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' comment.json \
-              | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+            # 前回チェック以降に他人が投稿した Issue 本文とコメントを通知する
+            { gh api "$url"; gh api "$url/comments?since=$since" --paginate --jq '.[]'; } \
+              | jq -c --arg me "$me" --arg since "$since" 'select(.created_at >= $since and .user.login != $me)' |
+            while read -r item; do
+              printf '%s' "$item" \
+                | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \((.body // "")[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' \
+                | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+            done
           done
 
           echo "$now" > last_checked
