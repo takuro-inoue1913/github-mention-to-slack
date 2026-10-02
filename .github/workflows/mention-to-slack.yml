@@ -1,0 +1,45 @@
+name: mention-to-slack
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore last checked time
+        uses: actions/cache/restore@v4
+        with:
+          path: last_checked
+          key: last-checked-${{ github.run_id }}
+          restore-keys: last-checked-
+
+      - name: Notify mentions
+        env:
+          GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          now=$(date -u +%FT%TZ)
+          since=$(cat last_checked 2>/dev/null || date -u -d '-10 min' +%FT%TZ)
+          me=$(gh api user --jq .login)
+
+          gh api "notifications?all=true&since=$since" --paginate \
+            --jq '.[] | select(.reason == "mention") | .subject.latest_comment_url // empty' |
+          while read -r url; do
+            # スレッドの最新コメントに自分へのメンションが含まれるときだけ通知する
+            gh api "$url" \
+              | jq -e --arg me "@$me" 'select(.body | ascii_downcase | contains($me | ascii_downcase))' > comment.json \
+              || continue
+            jq '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))"}' comment.json \
+              | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+          done
+
+          echo "$now" > last_checked
+
+      - name: Save last checked time
+        uses: actions/cache/save@v4
+        with:
+          path: last_checked
+          key: last-checked-${{ github.run_id }}
