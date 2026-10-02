@@ -15,6 +15,11 @@ concurrency:
 jobs:
   notify:
     runs-on: ubuntu-latest
+    env:
+      # 本文はコードブロックで送り、自分へのメンションがあれば投稿者名の横で Slack メンションする
+      MESSAGE_FILTER: |
+        (.body // "") as $body
+        | {text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*\(if ($body | test("@\($me)\\b"; "i")) then " <@\($slack)>" else "" end)\n```\n\($body[0:3000] | gsub("```"; "'''") | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;"))\n```"}
     steps:
       - name: Notify specified comment
         if: inputs.comment_url != ''
@@ -26,7 +31,7 @@ jobs:
         run: |
           repo=$(echo "${COMMENT_URL#https://github.com/}" | cut -d/ -f1-2)
           gh api "repos/$repo/issues/comments/${COMMENT_URL##*issuecomment-}" \
-            | jq --arg me "$(gh api user --jq .login)" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \(.body[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' \
+            | jq --arg me "$(gh api user --jq .login)" --arg slack "$SLACK_MEMBER_ID" "$MESSAGE_FILTER" \
             | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
 
       - name: Restore last checked time
@@ -57,7 +62,7 @@ jobs:
               | jq -c --arg me "$me" --arg since "$since" 'select(.created_at >= $since and .user.login != $me)' |
             while read -r item; do
               printf '%s' "$item" \
-                | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" '{text: "<\(.html_url)|\(.html_url | sub("https://github.com/"; ""))>\n*\(.user.login)*: \((.body // "")[0:500] | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("@\($me)\\b"; "<@\($slack)>"; "i"))"}' \
+                | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" "$MESSAGE_FILTER" \
                 | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
             done
           done
