@@ -1,6 +1,6 @@
 # github-mention-to-slack
 
-自分が参加している GitHub Issue への他人の投稿を、5 分おきに Slack の Incoming Webhook へ転送する GitHub Actions。
+自分が参加している GitHub Issue への他人の投稿を、1 分おきに Slack の Incoming Webhook へ転送する GitHub Actions。
 
 ## 通知対象
 
@@ -30,7 +30,16 @@
 - notify job の `concurrency` で同時実行を防ぎ、遅延した実行同士で同じ投稿を送らないようにしている
 - 限界
   - 途中で Slack への送信が失敗すると時刻が更新されず、次回にそれまで送った分も再送される
-  - schedule 実行は GitHub 側の混雑で数分〜十数分遅れることがある
+  - schedule 実行は GitHub 側で間引かれ、1 日数回しか動かないことがある（外部 cron からの起動で補う）
+
+## 起動方法
+
+GitHub の schedule は混雑時に間引かれ、`*/5` でも数時間空くことがある。そのため外部 cron（cron-job.org）から 1 分おきに `workflow_dispatch` を呼んで起動する。
+
+- 通知 API のポーリング間隔（`X-Poll-Interval`）が 60 秒なので、1 分より短くしても意味がない
+- 実行が重なっても `concurrency` で直列化され、待機中の古い実行はキャンセルされる
+- `*/5` の schedule は外部 cron が止まったときの予備として残している
+- Webhook でのリアルタイム化は不可。参加中 Issue の通知に対応する Webhook がなく、他 Org のリポジトリには Webhook を設定できない
 
 ## schedule の自動停止対策
 
@@ -49,6 +58,24 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
 | Secret | `NOTIFICATIONS_TOKEN` | Classic PAT（scope: `notifications`, `repo`）。SAML SSO の Org は「Configure SSO」で Authorize が必要 |
 | Secret | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook の URL。送り先を変えるときは Webhook を作り直してここを差し替える |
 | Variable | `SLACK_MEMBER_ID` | 自分の Slack メンバー ID（メンション変換に使う） |
+
+### 外部 cron（cron-job.org）
+
+1. Fine-grained PAT を作る
+   - Repository access: `takuro-inoue1913/github-mention-to-slack` のみ
+   - Permissions: Actions を **Read and write**
+   - 有効期限を設定した場合は、切れる前に作り直して cron-job.org の Header を差し替える
+2. https://cron-job.org で cronjob を作る
+   - URL: `https://api.github.com/repos/takuro-inoue1913/github-mention-to-slack/actions/workflows/mention-to-slack.yml/dispatches`
+   - Schedule: Every 1 minute
+   - Advanced
+     - Request method: `POST`
+     - Headers
+       - `Authorization`: `Bearer <PAT>`
+       - `Accept`: `application/vnd.github+json`
+       - `X-GitHub-Api-Version`: `2022-11-28`
+     - Request body: `{"ref":"main"}`
+3. 「Test run」で 2xx が返り、Actions タブに `workflow_dispatch` の実行が出ることを確認する
 
 ## 動作確認
 
