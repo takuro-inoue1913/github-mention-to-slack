@@ -78,14 +78,15 @@ jobs:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_MEMBER_ID: ${{ vars.SLACK_MEMBER_ID }}
+          TARGET_OWNER: hello-ai
         run: |
           now=$(date -u +%FT%TZ)
           since=$(cat last_checked 2>/dev/null || date -u -d '-10 min' +%FT%TZ)
           me=$(gh api user --jq .login)
 
-          # 自分が作成・コメント・アサイン・メンションされた Issue のスレッド
+          # TARGET_OWNER のリポジトリで、自分が作成・コメント・アサイン・メンションされた Issue のスレッド
           gh api "notifications?all=true&participating=true&since=$since" --paginate \
-            --jq '.[] | select(.subject.type == "Issue") | .subject.url' |
+            --jq '.[] | select(.subject.type == "Issue" and .repository.owner.login == env.TARGET_OWNER) | .subject.url' |
           while read -r url; do
             # 前回チェック以降に他人が投稿した Issue 本文とコメントを通知する
             issue=$(gh api "$url")
