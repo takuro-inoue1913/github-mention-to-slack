@@ -4,8 +4,8 @@
 
 ## 通知対象
 
-- GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、`hello-ai` Org のリポジトリのもの
-  - 対象 Org は workflow の `TARGET_OWNER` で指定する
+- GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、`cierpa/smartesg-questionnaire` のもの
+  - 対象リポジトリは workflow の `TARGET_REPO` で指定する
   - 自分が作成した・コメントした・アサインされた・メンションされた Issue が該当する
 - そのスレッドで前回チェック以降に投稿された Issue 本文（新規作成時）とコメント
 - 対象外
