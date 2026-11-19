@@ -60,15 +60,14 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
 | 種類 | 名前 | 内容 |
 |---|---|---|
 | Secret | `NOTIFICATIONS_TOKEN` | Classic PAT（scope: `notifications`, `repo`）。SAML SSO の Org は「Configure SSO」で Authorize が必要 |
-| Secret | 任意（例 `SLACK_WEBHOOK_URL`） | Slack Incoming Webhook の URL。送り先の Slack ワークスペースごとに作る |
 | Secret | `SLACK_ROUTES` | リポジトリごとの送り先（下記）。対象のリポジトリ名やメンバー ID を公開ログに出さないため Secret にする |
 
 ### 送り先の設定（`SLACK_ROUTES`）
 
 ```json
 {
-  "octo-org/octo-repo": {"webhook_secret": "SLACK_WEBHOOK_URL", "member_id": "U0123456789"},
-  "another-org/*": {"webhook_secret": "ANOTHER_SLACK_WEBHOOK_URL", "member_id": "U9876543210"}
+  "octo-org/octo-repo": {"webhook_url": "https://hooks.slack.com/services/...", "member_id": "U0123456789"},
+  "another-org/*": {"webhook_url": "https://hooks.slack.com/services/...", "member_id": "U9876543210"}
 }
 ```
 
@@ -77,12 +76,13 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
   - `owner/*`: その Org のすべてのリポジトリを対象にする
   - 両方に一致する場合は `owner/repo` を優先する
 - 値
-  - `webhook_secret`: Webhook URL を入れた Secret の名前
+  - `webhook_url`: Slack Incoming Webhook の URL（送り先の Slack ワークスペースごとに作る）
   - `member_id`: その Slack ワークスペースでの自分のメンバー ID（メンション変換に使う）
-- 送り先を足すときは、Webhook URL を Secret に登録し、`SLACK_ROUTES` に 1 行足す
+- 送り先を足すときは、Slack で Incoming Webhook を作り、`SLACK_ROUTES` に 1 行足す
   - Secret は後から値を読めないので、`SLACK_ROUTES` は全体を書き直して `gh secret set SLACK_ROUTES` で登録する
   - 他 Org のリポジトリを足す場合、SAML SSO の Org なら `NOTIFICATIONS_TOKEN` の Authorize も必要
-- Webhook URL を Secret の名前で指すため、通知を送る step には `toJSON(secrets)` で全 Secret を渡している
+- Webhook URL は Secret の名前で指さず `SLACK_ROUTES` に直接書く
+  - 名前で引くには `toJSON(secrets)` で全 Secret を渡す必要があり、GitHub に悪意のある workflow と判定されて実行が止まったため
 
 ### 外部 cron（cron-job.org）
 
