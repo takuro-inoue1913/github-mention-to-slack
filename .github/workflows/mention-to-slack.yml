@@ -57,7 +57,7 @@ jobs:
         if: inputs.comment_url != ''
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
-          SLACK_ROUTES: ${{ vars.SLACK_ROUTES }}
+          SLACK_ROUTES: ${{ secrets.SLACK_ROUTES }}
           # SLACK_ROUTES の webhook_secret から Webhook URL を引くため
           SECRETS: ${{ toJSON(secrets) }}
           COMMENT_URL: ${{ inputs.comment_url }}
@@ -86,7 +86,7 @@ jobs:
         if: inputs.comment_url == ''
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
-          SLACK_ROUTES: ${{ vars.SLACK_ROUTES }}
+          SLACK_ROUTES: ${{ secrets.SLACK_ROUTES }}
           # SLACK_ROUTES の webhook_secret から Webhook URL を引くため
           SECRETS: ${{ toJSON(secrets) }}
         run: |

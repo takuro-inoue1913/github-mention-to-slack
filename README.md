@@ -4,7 +4,7 @@
 
 ## 通知対象
 
-- GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、Variable `SLACK_ROUTES` に送り先があるリポジトリのもの
+- GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、Secret `SLACK_ROUTES` に送り先があるリポジトリのもの
   - 自分が作成した・コメントした・アサインされた・メンションされた Issue が該当する
 - そのスレッドで前回チェックの 10 分前以降に投稿された Issue 本文（新規作成時）とコメント
 - 対象外
@@ -61,13 +61,14 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
 |---|---|---|
 | Secret | `NOTIFICATIONS_TOKEN` | Classic PAT（scope: `notifications`, `repo`）。SAML SSO の Org は「Configure SSO」で Authorize が必要 |
 | Secret | 任意（例 `SLACK_WEBHOOK_URL`） | Slack Incoming Webhook の URL。送り先の Slack ワークスペースごとに作る |
-| Variable | `SLACK_ROUTES` | リポジトリごとの送り先（下記） |
+| Secret | `SLACK_ROUTES` | リポジトリごとの送り先（下記）。対象のリポジトリ名やメンバー ID を公開ログに出さないため Secret にする |
 
 ### 送り先の設定（`SLACK_ROUTES`）
 
 ```json
 {
-  "cierpa/smartesg-questionnaire": {"webhook_secret": "SLACK_WEBHOOK_URL", "member_id": "U075890V5C5"}
+  "octo-org/octo-repo": {"webhook_secret": "SLACK_WEBHOOK_URL", "member_id": "U0123456789"},
+  "another-org/*": {"webhook_secret": "ANOTHER_SLACK_WEBHOOK_URL", "member_id": "U9876543210"}
 }
 ```
 
@@ -79,6 +80,7 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
   - `webhook_secret`: Webhook URL を入れた Secret の名前
   - `member_id`: その Slack ワークスペースでの自分のメンバー ID（メンション変換に使う）
 - 送り先を足すときは、Webhook URL を Secret に登録し、`SLACK_ROUTES` に 1 行足す
+  - Secret は後から値を読めないので、`SLACK_ROUTES` は全体を書き直して `gh secret set SLACK_ROUTES` で登録する
   - 他 Org のリポジトリを足す場合、SAML SSO の Org なら `NOTIFICATIONS_TOKEN` の Authorize も必要
 - Webhook URL を Secret の名前で指すため、通知を送る step には `toJSON(secrets)` で全 Secret を渡している
 
