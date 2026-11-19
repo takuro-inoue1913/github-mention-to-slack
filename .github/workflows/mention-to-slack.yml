@@ -68,7 +68,9 @@ jobs:
         if: inputs.comment_url == ''
         uses: actions/cache/restore@v4
         with:
-          path: last_checked
+          path: |
+            last_checked
+            sent
           key: last-checked-${{ github.run_id }}
           restore-keys: last-checked-
 
@@ -81,7 +83,9 @@ jobs:
           TARGET_REPO: cierpa/smartesg-questionnaire
         run: |
           now=$(date -u +%FT%TZ)
-          since=$(cat last_checked 2>/dev/null || date -u -d '-10 min' +%FT%TZ)
+          # 通知は投稿から遅れて作られるので、前回チェックより 10 分さかのぼって取得する
+          since=$(jq -rn --arg t "$(cat last_checked 2>/dev/null || echo "$now")" '$t | fromdate - 600 | todate')
+          touch sent
           me=$(gh api user --jq .login)
 
           # TARGET_REPO で、自分が作成・コメント・アサイン・メンションされた Issue のスレッド
@@ -93,17 +97,26 @@ jobs:
             { printf '%s\n' "$issue"; gh api "$url/comments?since=$since" --paginate --jq '.[]'; } \
               | jq -c --arg me "$me" --arg since "$since" 'select(.created_at >= $since and .user.login != $me)' |
             while read -r item; do
+              # 送信済みの投稿は飛ばす
+              read -r created_at html_url < <(printf '%s' "$item" | jq -r '"\(.created_at) \(.html_url)"')
+              cut -d' ' -f2 sent | grep -qxF "$html_url" && continue
               printf '%s' "$item" \
                 | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" --argjson issue "$issue" "$MESSAGE_FILTER" \
                 | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+              echo "$created_at $html_url" >> sent
             done
           done
 
           echo "$now" > last_checked
+          # 次回さかのぼる範囲より古い送信記録は捨てる
+          awk -v since="$(jq -rn --arg t "$now" '$t | fromdate - 600 | todate')" '$1 >= since' sent > sent.tmp
+          mv sent.tmp sent
 
       - name: Save last checked time
         if: inputs.comment_url == ''
         uses: actions/cache/save@v4
         with:
-          path: last_checked
+          path: |
+            last_checked
+            sent
           key: last-checked-${{ github.run_id }}

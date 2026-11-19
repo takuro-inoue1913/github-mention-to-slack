@@ -7,7 +7,7 @@
 - GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、`cierpa/smartesg-questionnaire` のもの
   - 対象リポジトリは workflow の `TARGET_REPO` で指定する
   - 自分が作成した・コメントした・アサインされた・メンションされた Issue が該当する
-- そのスレッドで前回チェック以降に投稿された Issue 本文（新規作成時）とコメント
+- そのスレッドで前回チェックの 10 分前以降に投稿された Issue 本文（新規作成時）とコメント
 - 対象外
   - 自分の投稿
   - PR（GitHub の Scheduled reminders の real-time alerts で受け取る前提）
@@ -26,11 +26,14 @@
 
 ## 重複・取りこぼしの扱い
 
-- 前回チェックした時刻を Actions cache（`last_checked`）に保存し、それ以降に作成された投稿だけを送る
+- 前回チェックした時刻を Actions cache（`last_checked`）に保存し、その 10 分前以降に作成された投稿を対象にする
+  - 通知は投稿から数十秒遅れて作られることがあり、前回チェック時刻ちょうどで区切ると、通知待ちの間に時刻が進んで投稿が漏れるため
   - 初回（cache なし）は直近 10 分を対象にする
+- 送った投稿の URL を Actions cache（`sent`）に記録し、さかのぼった範囲で再送しないようにしている
 - notify job の `concurrency` で同時実行を防ぎ、遅延した実行同士で同じ投稿を送らないようにしている
 - 限界
   - 途中で Slack への送信が失敗すると時刻が更新されず、次回にそれまで送った分も再送される
+  - 通知が投稿から 10 分以上遅れて作られた場合は漏れる
   - schedule 実行は GitHub 側で間引かれ、1 日数回しか動かないことがある（外部 cron からの起動で補う）
 
 ## 起動方法
