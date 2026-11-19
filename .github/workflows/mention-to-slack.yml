@@ -48,21 +48,29 @@ jobs:
                 | escape | gsub("@\($me)\\b"; "<@\($slack)>"; "i")
                 | split("\n") | map("> " + .) | join("\n"))
           )}
+      # $repo の送り先の Webhook URL とメンバー ID を返す（リポジトリ名の一致を "org/*" より優先し、どちらもなければ空）
+      ROUTE_FILTER: |
+        ($routes[$repo] // $routes[($repo | split("/")[0]) + "/*"]) // empty
+        | [$secrets[.webhook_secret] // error("Secret \(.webhook_secret) がありません"), .member_id] | @tsv
     steps:
       - name: Notify specified comment
         if: inputs.comment_url != ''
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_MEMBER_ID: ${{ vars.SLACK_MEMBER_ID }}
+          SLACK_ROUTES: ${{ secrets.SLACK_ROUTES }}
+          # SLACK_ROUTES の webhook_secret から Webhook URL を引くため
+          SECRETS: ${{ toJSON(secrets) }}
           COMMENT_URL: ${{ inputs.comment_url }}
         run: |
           path=${COMMENT_URL#https://github.com/}
           repo=$(echo "$path" | cut -d/ -f1-2)
+          route=$(jq -nr --arg repo "$repo" --argjson routes "$SLACK_ROUTES" --argjson secrets "$SECRETS" "$ROUTE_FILTER")
+          [ -n "$route" ] || { echo "::error::$repo の送り先が SLACK_ROUTES にありません"; exit 1; }
+          IFS=$'\t' read -r slack_webhook_url slack_member_id <<< "$route"
           issue=$(gh api "repos/$repo/issues/$(echo "$path" | cut -d/ -f4 | cut -d'#' -f1)")
           gh api "repos/$repo/issues/comments/${COMMENT_URL##*issuecomment-}" \
-            | jq --arg me "$(gh api user --jq .login)" --arg slack "$SLACK_MEMBER_ID" --argjson issue "$issue" "$MESSAGE_FILTER" \
-            | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+            | jq --arg me "$(gh api user --jq .login)" --arg slack "$slack_member_id" --argjson issue "$issue" "$MESSAGE_FILTER" \
+            | curl -sf -X POST -H 'Content-type: application/json' --data @- "$slack_webhook_url"
 
       - name: Restore last checked time
         if: inputs.comment_url == ''
@@ -78,9 +86,9 @@ jobs:
         if: inputs.comment_url == ''
         env:
           GH_TOKEN: ${{ secrets.NOTIFICATIONS_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_MEMBER_ID: ${{ vars.SLACK_MEMBER_ID }}
-          TARGET_REPO: cierpa/smartesg-questionnaire
+          SLACK_ROUTES: ${{ secrets.SLACK_ROUTES }}
+          # SLACK_ROUTES の webhook_secret から Webhook URL を引くため
+          SECRETS: ${{ toJSON(secrets) }}
         run: |
           now=$(date -u +%FT%TZ)
           # 通知は投稿から遅れて作られるので、前回チェックより 10 分さかのぼって取得する
@@ -88,10 +96,14 @@ jobs:
           touch sent
           me=$(gh api user --jq .login)
 
-          # TARGET_REPO で、自分が作成・コメント・アサイン・メンションされた Issue のスレッド
+          # 自分が作成・コメント・アサイン・メンションされた Issue のスレッド
           gh api "notifications?all=true&participating=true&since=$since" --paginate \
-            --jq '.[] | select(.subject.type == "Issue" and .repository.full_name == env.TARGET_REPO) | .subject.url' |
-          while read -r url; do
+            --jq '.[] | select(.subject.type == "Issue") | [.repository.full_name, .subject.url] | @tsv' |
+          while IFS=$'\t' read -r repo url; do
+            # 送り先が SLACK_ROUTES にないリポジトリは対象外
+            route=$(jq -nr --arg repo "$repo" --argjson routes "$SLACK_ROUTES" --argjson secrets "$SECRETS" "$ROUTE_FILTER")
+            [ -n "$route" ] || continue
+            IFS=$'\t' read -r slack_webhook_url slack_member_id <<< "$route"
             # 前回チェック以降に他人が投稿した Issue 本文とコメントを通知する
             issue=$(gh api "$url")
             { printf '%s\n' "$issue"; gh api "$url/comments?since=$since" --paginate --jq '.[]'; } \
@@ -101,8 +113,8 @@ jobs:
               read -r created_at html_url < <(printf '%s' "$item" | jq -r '"\(.created_at) \(.html_url)"')
               cut -d' ' -f2 sent | grep -qxF "$html_url" && continue
               printf '%s' "$item" \
-                | jq --arg me "$me" --arg slack "$SLACK_MEMBER_ID" --argjson issue "$issue" "$MESSAGE_FILTER" \
-                | curl -sf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+                | jq --arg me "$me" --arg slack "$slack_member_id" --argjson issue "$issue" "$MESSAGE_FILTER" \
+                | curl -sf -X POST -H 'Content-type: application/json' --data @- "$slack_webhook_url"
               echo "$created_at $html_url" >> sent
             done
           done
