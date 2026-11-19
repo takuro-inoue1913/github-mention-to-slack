@@ -1,15 +1,15 @@
 # github-mention-to-slack
 
-自分が参加している GitHub Issue への他人の投稿を、1 分おきに Slack の Incoming Webhook へ転送する GitHub Actions。
+自分が参加している GitHub Issue への他人の投稿を、1 分おきにリポジトリごとの Slack Incoming Webhook へ転送する GitHub Actions。
 
 ## 通知対象
 
-- GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、`cierpa/smartesg-questionnaire` のもの
-  - 対象リポジトリは workflow の `TARGET_REPO` で指定する
+- GitHub 通知 API（`GET /notifications?participating=true`）に出る Issue のスレッドのうち、Variable `SLACK_ROUTES` に送り先があるリポジトリのもの
   - 自分が作成した・コメントした・アサインされた・メンションされた Issue が該当する
 - そのスレッドで前回チェックの 10 分前以降に投稿された Issue 本文（新規作成時）とコメント
 - 対象外
   - 自分の投稿
+  - `SLACK_ROUTES` に送り先がないリポジトリ
   - PR（GitHub の Scheduled reminders の real-time alerts で受け取る前提）
   - PR の行コメント、編集で後から追加された内容
 
@@ -21,7 +21,7 @@
 > 本文（空行を詰めて 5 行・300 文字まで。超えたら末尾に「 …」）
 ```
 
-- 本文中の `@自分の GitHub ユーザー名` は Slack メンション（`<@SLACK_MEMBER_ID>`）に変換する（大文字小文字は区別しない）
+- 本文中の `@自分の GitHub ユーザー名` は Slack メンション（`<@送り先の member_id>`）に変換する（大文字小文字は区別しない）
 - `&` `<` `>` は Slack 用にエスケープする
 
 ## 重複・取りこぼしの扱い
@@ -60,8 +60,27 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
 | 種類 | 名前 | 内容 |
 |---|---|---|
 | Secret | `NOTIFICATIONS_TOKEN` | Classic PAT（scope: `notifications`, `repo`）。SAML SSO の Org は「Configure SSO」で Authorize が必要 |
-| Secret | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook の URL。送り先を変えるときは Webhook を作り直してここを差し替える |
-| Variable | `SLACK_MEMBER_ID` | 自分の Slack メンバー ID（メンション変換に使う） |
+| Secret | 任意（例 `SLACK_WEBHOOK_URL`） | Slack Incoming Webhook の URL。送り先の Slack ワークスペースごとに作る |
+| Variable | `SLACK_ROUTES` | リポジトリごとの送り先（下記） |
+
+### 送り先の設定（`SLACK_ROUTES`）
+
+```json
+{
+  "cierpa/smartesg-questionnaire": {"webhook_secret": "SLACK_WEBHOOK_URL", "member_id": "U075890V5C5"}
+}
+```
+
+- キー
+  - `owner/repo`: そのリポジトリだけを対象にする
+  - `owner/*`: その Org のすべてのリポジトリを対象にする
+  - 両方に一致する場合は `owner/repo` を優先する
+- 値
+  - `webhook_secret`: Webhook URL を入れた Secret の名前
+  - `member_id`: その Slack ワークスペースでの自分のメンバー ID（メンション変換に使う）
+- 送り先を足すときは、Webhook URL を Secret に登録し、`SLACK_ROUTES` に 1 行足す
+  - 他 Org のリポジトリを足す場合、SAML SSO の Org なら `NOTIFICATIONS_TOKEN` の Authorize も必要
+- Webhook URL を Secret の名前で指すため、通知を送る step には `toJSON(secrets)` で全 Secret を渡している
 
 ### 外部 cron（cron-job.org）
 
