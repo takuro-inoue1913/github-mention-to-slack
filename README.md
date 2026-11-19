@@ -78,9 +78,7 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
 - 値
   - `webhook_url`: Slack Incoming Webhook の URL（送り先の Slack ワークスペースごとに作る）
   - `member_id`: その Slack ワークスペースでの自分のメンバー ID（メンション変換に使う）
-- 送り先を足すときは、Slack で Incoming Webhook を作り、`SLACK_ROUTES` に 1 行足す
-  - Secret は後から値を読めないので、`SLACK_ROUTES` は全体を書き直して `gh secret set SLACK_ROUTES` で登録する
-  - 他 Org のリポジトリを足す場合、SAML SSO の Org なら `NOTIFICATIONS_TOKEN` の Authorize も必要
+- 送り先を足す手順は「[通知対象を増やす](#通知対象を増やす)」を参照
 - Webhook URL は Secret の名前で指さず `SLACK_ROUTES` に直接書く
   - 名前で引くには `toJSON(secrets)` で全 Secret を渡す必要があり、GitHub に悪意のある workflow と判定されて実行が止まったため
 
@@ -101,6 +99,76 @@ https://github.com/settings/notifications の「Participating, @mentions and cus
        - `X-GitHub-Api-Version`: `2022-11-28`
      - Request body: `{"ref":"main"}`
 3. 「Test run」で 2xx が返り、Actions タブに `workflow_dispatch` の実行が出ることを確認する
+
+## 通知対象を増やす
+
+新しいリポジトリや Org の Issue を通知したいときの手順。workflow の変更は不要で、Secret `SLACK_ROUTES` を書き換えるだけでよい。
+
+### 1. 対象のキーを決める
+
+- 特定のリポジトリだけなら `owner/repo`
+- Org のすべてのリポジトリなら `owner/*`
+  - 後から作られたリポジトリも自動で対象になる
+- `owner/*` の中で一部だけ別の Slack に送りたいときは、そのリポジトリを `owner/repo` で別に書く（`owner/repo` が優先される）
+
+### 2. 送り先の Slack を用意する
+
+- 既存の送り先と同じ Slack チャンネルに送るなら、既存の `webhook_url` と `member_id` をそのまま使う
+- 別の Slack ワークスペースやチャンネルに送るなら、Incoming Webhook を作る
+  1. https://api.slack.com/apps で「Create New App」→「From scratch」→ 送り先のワークスペースを選ぶ
+  2. 「Incoming Webhooks」を On にする
+  3. 「Add New Webhook to Workspace」で送り先のチャンネルを選び、発行された URL（`https://hooks.slack.com/services/...`）を控える
+- そのワークスペースでの自分のメンバー ID を控える
+  - Slack で自分のプロフィールを開き、「︙」→「メンバー ID をコピー」
+  - ワークスペースが違うとメンバー ID も違うので、使い回さない
+
+### 3. GitHub からそのリポジトリを読めるようにする
+
+- private リポジトリなら、自分にそのリポジトリの閲覧権限があること
+- SAML SSO を使う Org なら、`NOTIFICATIONS_TOKEN` の PAT を Authorize する
+  - https://github.com/settings/tokens で該当の PAT の「Configure SSO」から Org を Authorize
+  - 忘れると Issue の取得が 403 / 404 になり、通知されない
+
+### 4. `SLACK_ROUTES` を書き直して登録する
+
+Secret は後から値を読めないため、既存の送り先も含めた JSON 全体を登録し直す。手元に最新の JSON を保管しておく（パスワードマネージャーなど）。
+
+1. 既存の JSON に 1 行足したファイルを作る
+
+   ```json
+   {
+     "octo-org/octo-repo": {"webhook_url": "https://hooks.slack.com/services/...", "member_id": "U0123456789"},
+     "new-org/*": {"webhook_url": "https://hooks.slack.com/services/...", "member_id": "U9876543210"}
+   }
+   ```
+
+2. JSON として正しいか確認する（エラーが出なければよい）
+
+   ```sh
+   jq . routes.json
+   ```
+
+3. 登録して、ファイルを消す（URL をシェル履歴に残さないため、ファイルから渡す）
+
+   ```sh
+   gh secret set SLACK_ROUTES -R takuro-inoue1913/github-mention-to-slack < routes.json
+   rm routes.json
+   ```
+
+### 5. 届くか確認する
+
+1. 追加したリポジトリの Issue のコメント URL を指定して手動実行する（「[動作確認](#動作確認)」と同じ）
+
+   ```sh
+   gh workflow run mention-to-slack -R takuro-inoue1913/github-mention-to-slack \
+     -f comment_url='https://github.com/new-org/some-repo/issues/1#issuecomment-123'
+   ```
+
+2. Slack に届けば完了。届かないときは Actions のログを見る
+   - `送り先が SLACK_ROUTES にありません`: キーの綴りが違う、または登録できていない
+   - `webhook_url がありません`: 値に `webhook_url` がない
+   - `gh: Not Found (HTTP 404)` / `HTTP 403`: PAT がそのリポジトリを読めていない（手順 3）
+   - `Process completed with exit code 22`（Slack への送信失敗）: `webhook_url` が間違っている、または Webhook が削除されている
 
 ## 動作確認
 
